@@ -1,0 +1,27 @@
+{
+  "name": "content-planner-functions",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test src/*.test.ts",
+    "test:rules": "cd .. && npx --yes firebase-tools emulators:exec --project demo-content-planner --only firestore \"node --test functions/test/rules.test.ts\"",
+    "test:budget": "npm run build && cd .. && npx --yes firebase-tools emulators:exec --project demo-content-planner --only firestore \"node --test functions/test/budget-concurrency.test.ts\""
+  },
+  "dependencies": {
+    "@google/genai": "^2.17.0",
+    "firebase-admin": "^14.2.0",
+    "firebase-functions": "^7.3.2"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "uuid": ">=11.1.1"
+  }
+}

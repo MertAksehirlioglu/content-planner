@@ -1,0 +1,170 @@
+/* Mantine ships the component styles. This is the app shell + "editorial desk"
+   surface that Mantine doesn't cover. */
+
+:root {
+  --ink: #0b0d15;
+  --ink-raised: #101321;
+  --surface: #1b1f30;
+  --line: #2c3248;
+  --line-soft: #232840;
+  --iris: #7c83ff;
+  --amber: #f4a968;
+  --text: #e9ebf4;
+  --dim: #9ba1b8;
+}
+
+.caption {
+  white-space: pre-wrap;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  background:
+    radial-gradient(1100px 520px at 78% -8%, rgba(124, 131, 255, 0.1), transparent 60%),
+    radial-gradient(900px 480px at 8% 4%, rgba(244, 169, 104, 0.05), transparent 55%),
+    var(--ink);
+  background-attachment: fixed;
+}
+
+/* Sticky product bar — the thing that reads "this is a real app" the instant
+   you land. Sits on its own raised surface above the desk. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: color-mix(in srgb, var(--ink-raised) 88%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.topbarInner {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 0.7rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.brandMark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(150deg, var(--iris), #4750d6 78%);
+  box-shadow: 0 6px 18px -6px rgba(124, 131, 255, 0.6);
+}
+
+.wordmark {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 600;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.wordmarkSub {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.shell {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 5rem;
+}
+
+/* Mono eyebrow used for section kickers and meta. Encodes "ledger", not decoration. */
+.eyebrow {
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* The week rail: a distinct horizontal band that anchors every planner action
+   to a specific week. Mono type gives it a calendar/ledger feel. */
+.weekRail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent), var(--ink-raised);
+}
+
+.weekKey {
+  font-family: var(--font-mono), monospace;
+  font-weight: 600;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+/* Post = a planner index card. A channel-keyed spine + a mono day tab make the
+   feed read like an editorial desk rather than a list of grey boxes. */
+.postCard {
+  position: relative;
+  overflow: hidden;
+  border-color: var(--line) !important;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.postCard::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--spine, var(--iris));
+}
+
+.postCard:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--spine, var(--iris)) 45%, var(--line)) !important;
+  box-shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.85);
+}
+
+.dayTab {
+  font-family: var(--font-mono), monospace;
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--spine, var(--iris));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .postCard {
+    transition: none;
+  }
+  .postCard:hover {
+    transform: none;
+  }
+}

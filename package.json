@@ -1,0 +1,40 @@
+{
+  "name": "content-planner",
+  "version": "0.1.0",
+  "description": "Weekly content planner: store a brand brief once, approve a cross-channel strategy, generate production-ready Instagram and LinkedIn posts with Gemini.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MertAksehirlioglu/content-planner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MertAksehirlioglu/content-planner/issues"
+  },
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p ${PORT:-8420}",
+    "build": "next build",
+    "test": "node --test lib/*.test.ts functions/src/*.test.ts",
+    "deploy": "npm run build && npx firebase deploy",
+    "preview": "npm run build && npx firebase emulators:start"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.5.1",
+    "@mantine/hooks": "^9.5.1",
+    "firebase": "^12.17.1",
+    "next": "^16.3.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "firebase-tools": "^15.26.0",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "uuid": ">=11.1.1",
+    "@opentelemetry/core": ">=2.8.0"
+  }
+}

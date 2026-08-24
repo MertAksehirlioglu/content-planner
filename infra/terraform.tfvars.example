@@ -1,0 +1,14 @@
+project_id     = "my-content-planner"
+allowed_emails = ["you@example.com"]
+admin_emails   = ["you@example.com"]
+
+# From https://aistudio.google.com/apikey — the one value Terraform cannot create.
+gemini_api_key = "replace-with-your-gemini-api-key"
+
+# Optional: bounds project spend. Find it with `gcloud billing accounts list`.
+billing_account    = ""
+monthly_budget_usd = 25
+
+# Optional: skip and enable Google sign-in in the console instead.
+google_oauth_client_id     = ""
+google_oauth_client_secret = ""

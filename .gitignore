@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+out/
+functions/lib/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets — real values live in Cloud Secret Manager, never here
+.env*
+!.env.example
+!**/.env.example
+*.tfvars
+!*.tfvars.example
+*.auto.tfvars
+*.tfstate
+*.tfstate.*
+*.pem
+*.p12
+*.pfx
+*service-account*.json
+*service_account*.json
+*firebase-adminsdk*.json
+*credentials*.json
+
+# Per-fork project binding, written by `firebase use <project-id>`.
+.firebaserc
+
+# Local agent state. .claude/skills/ is committed on purpose (project skills);
+# worktrees holds full copies of this repo and settings.local.json is per-machine.
+.claude/worktrees/
+.claude/settings.local.json
+.observer.lock
+
+# Firebase local state and logs (debug logs contain account details)
+.firebase/
+*-debug.log
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

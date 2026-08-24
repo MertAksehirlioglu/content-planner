@@ -1,0 +1,7 @@
+# Local state and the plugin cache. .terraform.lock.hcl is deliberately NOT ignored —
+# it pins provider versions and belongs in the repo.
+.terraform/
+crash.log
+
+# Holds gemini_api_key. Copy terraform.tfvars.example and fill it in.
+# Secret-bearing tfvars and state are ignored by the repository-level .gitignore.

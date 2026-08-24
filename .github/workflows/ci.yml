@@ -1,0 +1,67 @@
+# Runs on every push and pull request, including from forks. The deploy workflow only runs on
+# main and needs secrets a fork cannot have, so without this a contributor's PR gets no signal.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+      # The Firestore emulator refuses anything below 21. Pinned here rather than relying on
+      # whatever the runner image ships, so the emulator suites don't break on an image bump.
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - run: npm ci
+      - run: npm --prefix functions ci
+
+      - name: Pure tests (no network, no emulator)
+        run: npm test
+
+      - name: Typecheck the functions
+        run: npm --prefix functions run build
+
+      - name: Build the web app
+        # lib/firebase.ts fails fast on missing config, and these are public placeholders —
+        # the build only needs them to be present, never to be real.
+        run: npm run build
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:0:web:ci"
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ci-placeholder
+
+      - name: Firestore rules (emulator)
+        run: npm --prefix functions run test:rules
+
+      - name: Budget concurrency (emulator)
+        run: npm --prefix functions run test:budget

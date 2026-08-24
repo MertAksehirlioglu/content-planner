@@ -1,0 +1,121 @@
+# Auto-deploy to Firebase on every push to main.
+#
+# One-time setup (the parts that aren't in infra/):
+#   1. Provision the project: see infra/README.md (`terraform apply`).
+#   2. Create a deploy service account with these roles on the project:
+#      Firebase Admin, Cloud Functions Admin, Service Account User,
+#      Secret Manager Admin (the functions bind secrets), Artifact Registry Admin.
+#      Shortcut: `npx firebase init hosting:github` creates the SA + key for you.
+#   3. Add its JSON key as the FIREBASE_SERVICE_ACCOUNT repository *secret*.
+#   4. Add these repository *variables* (Settings -> Secrets and variables -> Actions ->
+#      Variables). They are public identifiers that ship in the bundle, not secrets — take
+#      them from `terraform -chdir=infra output -raw env_local`:
+#        FIREBASE_PROJECT_ID, FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN,
+#        FIREBASE_STORAGE_BUCKET, FIREBASE_MESSAGING_SENDER_ID, FIREBASE_APP_ID,
+#        RECAPTCHA_SITE_KEY, FUNCTIONS_REGION
+#
+# ALLOWED_EMAILS / ADMIN_EMAILS / GEMINI_API_KEY are NOT needed here — Terraform puts them in
+# Secret Manager and the deploy just re-binds them.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {} # lets you run a deploy manually from the Actions tab
+
+# Never let two deploys race; don't cancel one mid-release.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # Public forks do not have this repository's deployment variables. Skip cleanly until the
+    # fork owner opts into deployment by configuring their own Firebase project.
+    if: vars.FIREBASE_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix functions ci
+      - run: npm test
+
+      # The web build inlines these at compile time. Fail loudly here rather than shipping a
+      # bundle pointed at nothing — lib/firebase.ts throws on a missing value, but a clear
+      # message beats a stack trace in the build log.
+      - name: Write .env.local from repository variables
+        env:
+          FIREBASE_API_KEY: ${{ vars.FIREBASE_API_KEY }}
+          FIREBASE_AUTH_DOMAIN: ${{ vars.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_STORAGE_BUCKET: ${{ vars.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ vars.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          RECAPTCHA_SITE_KEY: ${{ vars.RECAPTCHA_SITE_KEY }}
+          FUNCTIONS_REGION: ${{ vars.FUNCTIONS_REGION || 'europe-west1' }}
+        run: |
+          if [ -z "$FIREBASE_PROJECT_ID" ]; then
+            echo "::error::Repository variable FIREBASE_PROJECT_ID is not set. See the header of this file."
+            exit 1
+          fi
+          cat > .env.local <<EOF
+          NEXT_PUBLIC_FIREBASE_API_KEY=$FIREBASE_API_KEY
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$FIREBASE_AUTH_DOMAIN
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=$FIREBASE_PROJECT_ID
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$FIREBASE_STORAGE_BUCKET
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$FIREBASE_MESSAGING_SENDER_ID
+          NEXT_PUBLIC_FIREBASE_APP_ID=$FIREBASE_APP_ID
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY=$RECAPTCHA_SITE_KEY
+          NEXT_PUBLIC_FUNCTIONS_REGION=$FUNCTIONS_REGION
+          EOF
+
+      - run: npm run build # next build → static export in out/
+
+      # Write the key and validate it BEFORE deploying, so a bad secret gives a
+      # precise message instead of firebase's vague "Failed to authenticate".
+      - name: Write and verify service-account credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          if [ ! -s "$RUNNER_TEMP/sa.json" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT is empty. Paste the ENTIRE service-account JSON key (first { to last }) as the secret value."
+            exit 1
+          fi
+          node -e '
+            const fs = require("fs");
+            const path = process.env.RUNNER_TEMP + "/sa.json";
+            const expected = process.env.FIREBASE_PROJECT_ID;
+            let key;
+            try {
+              key = JSON.parse(fs.readFileSync(path, "utf8"));
+            } catch (e) {
+              console.error("::error::FIREBASE_SERVICE_ACCOUNT is not valid JSON (" + e.message + "). Paste the complete key file as the value.");
+              process.exit(1);
+            }
+            const missing = ["type", "project_id", "private_key", "client_email"].filter((k) => !key[k]);
+            if (missing.length) {
+              console.error("::error::Key JSON is missing " + missing.join(", ") + " — the value is not a complete service-account key.");
+              process.exit(1);
+            }
+            if (key.project_id !== expected) {
+              console.error("::error::Service-account project_id does not match FIREBASE_PROJECT_ID.");
+              process.exit(1);
+            }
+            console.log("Credential JSON looks valid and targets the configured project.");
+          '
+
+      # --force auto-answers the artifact cleanup-policy prompt, which is the
+      # interactive-only step that otherwise leaves hosting un-released (see CLAUDE.md).
+      - name: Deploy hosting + functions + firestore rules
+        run: npx firebase deploy --project "$FIREBASE_PROJECT_ID" --non-interactive --force
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
