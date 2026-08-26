@@ -20,7 +20,7 @@
     "firebase-functions": "^7.3.2"
   },
   "devDependencies": {
-    "@firebase/rules-unit-testing": "^5.0.1",
+    "@firebase/rules-unit-testing": "^5.0.2",
     "typescript": "^7.0.2"
   },
   "overrides": {
