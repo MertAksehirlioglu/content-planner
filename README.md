@@ -53,10 +53,12 @@ dev` also needs a signed-in Google account on the allowlist before it will gener
 ## Check
 
 ```sh
-npm test          # node --test: prompts, parsers, profile, export, allowlist, cost, budget. No network.
+npm test          # node --test: prompts, parsers, profile, export, allowlist, cost, budget,
+                  # membership. No network.
 npm run build     # next build → static export in out/ (also typechecks the web app)
 npm --prefix functions run build    # typechecks the functions
-npm --prefix functions run test:rules   # firestore.rules against the emulator (needs JDK 21+)
+npm --prefix functions run test:rules     # firestore.rules against the emulator (needs JDK 21+)
+npm --prefix functions run test:migrate   # the workspace migration against the emulator
 ```
 
 ## How it works
@@ -71,22 +73,28 @@ npm --prefix functions run test:rules   # firestore.rules against the emulator (
 - `lib/image-prompt.ts` / `lib/image-layout.ts` — the model is forbidden from rendering
   typography; headline and supporting text are drawn afterwards with Canvas, so text is always
   sharp and correct.
-- `lib/store.ts` — the only Firestore module. Accounts and their items live under `users/{uid}`,
-  owner-scoped by `firestore.rules`.
+- `lib/store.ts` — brand data in Firestore. A brand is a **shared workspace**: it lives at
+  `workspaces/{id}` and everyone in its `members/` subcollection reads and writes the same
+  profile, items, backlog and weeks. Membership is written only by the Admin SDK
+  (`functions/src/workspace-api.ts`), never by the browser.
+- Budgets are **not** shared. Spend stays per signed-in user under `users/{uid}/billing/*`, so
+  colleagues on one brand each generate against their own monthly cap.
 - `functions/src/index.ts` — a `beforeUserSignedIn` blocking function that refuses any email
   outside `ALLOWED_EMAILS`. It never sees a plan request.
 - `app/page.tsx` — the UI and the sign-in gate.
 
 Access control is three Firebase mechanisms, not app code: **App Check** proves the request came
 from this app, the **callables reject unauthenticated requests**, and the **gatekeeper** means
-only allowlisted emails can obtain a session at all. Budgets and spend counters under
-`users/{uid}/billing/*` are client-read-only — only the Admin SDK writes them, so a user can
-neither raise their own cap nor reset their counter. See [CLAUDE.md](./CLAUDE.md).
+only allowlisted emails can obtain a session at all. `firestore.rules` then scopes brand data to
+a workspace's members. Budgets and spend counters under `users/{uid}/billing/*` are
+client-read-only — only the Admin SDK writes them, so a user can neither raise their own cap nor
+reset their counter. Membership documents are locked down the same way. See
+[CLAUDE.md](./CLAUDE.md).
 
 ## Deploy
 
 Every push to `main` deploys — `.github/workflows/deploy.yml` builds, runs `npm test`, then
-deploys hosting + functions + Firestore rules. It reads the project id and the public web config
+deploys hosting + functions + Firestore rules and indexes. It reads the project id and the public web config
 from repository variables; the header of that file lists them.
 
 Changing who has access = update `allowed_emails` in `terraform.tfvars`, apply, redeploy the

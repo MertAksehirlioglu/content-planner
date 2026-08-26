@@ -54,13 +54,13 @@ test("a reservation is refused once the cap is already reached", async () => {
   assert.equal(result.ok, false);
 });
 
-test("settling swaps the hold for the real charge and credits the account", async () => {
+test("settling swaps the hold for the real charge and credits the workspace", async () => {
   const uid = "settler";
   await seed(uid, 5);
 
   await reserveSpend(db, uid, MONTH, 0.10);
   await settleSpend(db, {
-    uid, accountId: "acct1", month: MONTH, reserve: 0.10, actual: 0.02,
+    uid, workspaceId: "acct1", month: MONTH, reserve: 0.10, actual: 0.02,
     event: { operation: "plan", model: "gemini-3.6-flash" },
   });
 
@@ -68,10 +68,13 @@ test("settling swaps the hold for the real charge and credits the account", asyn
   assert.ok(Math.abs(spentUsd - 0.02) < 1e-9, `hold should be replaced by the actual, got ${spentUsd}`);
 
   const spend = await db.doc(`users/${uid}/billing/spend_${MONTH}`).get();
+  // byAccount keeps its field name and its key: a workspace id IS the old account id, so
+  // month-to-date breakdowns survive the migration.
   assert.ok(Math.abs((spend.data()?.byAccount?.acct1 ?? 0) - 0.02) < 1e-9,
-    "per-account breakdown must record the actual, never the hold");
+    "per-workspace breakdown must record the actual, never the hold");
 
-  const usage = await db.collection(`users/${uid}/accounts/acct1/usage`).get();
+  // The spend counter stayed under the user; only the usage log moved to the shared workspace.
+  const usage = await db.collection("workspaces/acct1/usage").get();
   assert.equal(usage.size, 1, "settling appends exactly one usage event");
 });
 

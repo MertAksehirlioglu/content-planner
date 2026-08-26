@@ -20,7 +20,7 @@ interface PostCardProps {
   onTransform: (instruction: string) => void;
   visualIdentity: string;
   avoid: string;
-  accountId?: string;
+  workspaceId: string;
   onSpend: () => void;
   savedImageState?: SavedImageState;
   onImageState: (state: SavedImageState) => void;
@@ -77,7 +77,7 @@ function ImagePreview({ image, post, index, visualIdentity }: {
   </div>;
 }
 
-export function PostCard({ post, onTweak, onKeep, onBacklog, onTransform, visualIdentity, avoid, accountId, onSpend,
+export function PostCard({ post, onTweak, onKeep, onBacklog, onTransform, visualIdentity, avoid, workspaceId, onSpend,
   savedImageState, onImageState, onGeneratedImages }: PostCardProps) {
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -142,8 +142,8 @@ export function PostCard({ post, onTweak, onKeep, onBacklog, onTransform, visual
         // A raw first-slide background is the style reference; browser-rendered text is never
         // sent back to the image model.
         const styleReference = index === 0 ? undefined : working[0];
-        const image = await generateAiImage(imagePrompts[index], isRetry ? retryNote : "",
-          styleReference, post.aspect_ratio, accountId);
+        const image = await generateAiImage(workspaceId, imagePrompts[index],
+          isRetry ? retryNote : "", styleReference, post.aspect_ratio);
         working[index] = image;
         onSpend();
       }

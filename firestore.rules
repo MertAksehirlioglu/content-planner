@@ -4,22 +4,70 @@ service cloud.firestore {
     function isOwner(uid) {
       return request.auth != null && request.auth.uid == uid;
     }
+
+    // ---------------------------------------------------------------------------
+    // Shared brand workspaces. Access is proved by a members/{uid} document, and
+    // that document is written ONLY by the Admin SDK (the workspace callables) —
+    // exactly like billing. So a client can never grant itself access to anything,
+    // and there is no "create your own membership" bootstrap hole to reason about.
+    // ---------------------------------------------------------------------------
+    match /workspaces/{wid} {
+      function isMember() {
+        return request.auth != null &&
+          exists(/databases/$(database)/documents/workspaces/$(wid)/members/$(request.auth.uid));
+      }
+
+      // The workspace doc itself: name, profile, styleRules. Non-recursive — only
+      // {document=**} descends, so the matches below keep their own verdicts.
+      allow read: if isMember();
+      // ownerUid is the durable authority the callables check; a member must not be
+      // able to seize it by writing the document it lives on.
+      allow update: if isMember() && request.resource.data.ownerUid == resource.data.ownerUid;
+      // Creation goes through the createWorkspace callable, which writes the workspace
+      // doc and its owner member doc in one batch. A client-side create would have to
+      // land those as two ungoverned writes.
+      allow create: if false;
+      // resource.data is the pre-write doc, so this costs no extra read.
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+
+      match /items/{item} { allow read, write: if isMember(); }
+      // weeks + everything under it (media assets and their base64 chunks).
+      match /weeks/{document=**} { allow read, write: if isMember(); }
+
+      // Members and usage events are Admin-SDK-write-only; members may read both.
+      // Kept as their own non-recursive matches so nothing above overlaps them —
+      // Firestore grants on ANY match, so a recursive allow would defeat these denies.
+      match /members/{member} {
+        allow read: if isMember();
+        allow write: if false;
+      }
+      match /usage/{event} {
+        allow read: if isMember();
+        allow write: if false;
+      }
+    }
+
+    // "Which workspaces am I in?" — collectionGroup("members").where("uid","==",myUid).
+    // Matched on the field, not the wildcard, because that is what a query can be proven
+    // against. Read-only and self-only, so it widens nothing the matches above grant.
+    match /{path=**}/members/{member} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.uid;
+    }
+
     match /users/{uid} {
+      // LEGACY, pre-workspace brand data. Kept writable for exactly one deploy cycle so
+      // the migration is reversible; delete this block once the migration is verified.
       match /accounts/{account} {
-        // Owner-writable account data.
         allow read, write: if isOwner(uid);
         match /items/{document=**} { allow read, write: if isOwner(uid); }
-        // weeks + everything under it (media assets and their base64 chunks) is owner-writable.
         match /weeks/{document=**} { allow read, write: if isOwner(uid); }
-        // Usage events are written only by the proxy (Admin SDK); the client may read.
-        // Kept as its own non-recursive match so no owner-write rule above overlaps it —
-        // Firestore grants on ANY match, so a recursive allow would defeat this deny.
         match /usage/{event} {
           allow read: if isOwner(uid);
           allow write: if false;
         }
       }
-      // Budget + spend counters: read-only to the owner, written only by the Admin SDK.
+      // Budget + spend counters: UNCHANGED. Read-only to the owner, Admin SDK writes only.
+      // Spend stays keyed by request.auth.uid — shared brand, individual wallets.
       match /billing/{doc} {
         allow read: if isOwner(uid);
         allow write: if false;

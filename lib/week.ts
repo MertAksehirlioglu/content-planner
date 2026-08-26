@@ -58,12 +58,12 @@ export function emptyWeek(weekKey = currentWeekKey()): WeekWorkspace {
  *
  * Every async write in the planner races the user: loads, a 700ms debounced autosave, and
  * generations all finish *after* the click that started them, by which time the user may have
- * switched account or week. Comparing this string before applying a result is what stops a
+ * switched workspace or week. Comparing this string before applying a result is what stops a
  * stale write landing on the wrong week. It was built by hand in five places; one function
  * means one format.
  */
-export function workspaceIdentity(uid: string, accountId: string, weekKey: string): string {
-  return `${uid}:${accountId}:${weekKey}`;
+export function workspaceIdentity(workspaceId: string, weekKey: string): string {
+  return `${workspaceId}:${weekKey}`;
 }
 
 /**

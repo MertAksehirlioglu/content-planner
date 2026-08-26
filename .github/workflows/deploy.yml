@@ -115,7 +115,7 @@ jobs:
 
       # --force auto-answers the artifact cleanup-policy prompt, which is the
       # interactive-only step that otherwise leaves hosting un-released (see CLAUDE.md).
-      - name: Deploy hosting + functions + firestore rules
+      - name: Deploy hosting + functions + firestore rules and indexes
         run: npx firebase deploy --project "$FIREBASE_PROJECT_ID" --non-interactive --force
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json

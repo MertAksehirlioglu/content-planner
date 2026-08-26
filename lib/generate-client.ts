@@ -13,8 +13,9 @@ export interface GenerateRequest {
   responseSchema?: unknown;
   responseModalities?: string[];
   imageConfig?: { aspectRatio?: string; imageSize?: string };
-  // Forward-compatible metering hints for the budget layer; harmless until it ships.
-  accountId?: string;
+  // Which shared workspace this call is for. Required: the server verifies membership
+  // before it spends anything, and writes the usage event under this workspace.
+  workspaceId: string;
   operation?: string;
 }
 

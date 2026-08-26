@@ -11,6 +11,7 @@ if (!getApps().length) initializeApp();
 
 export { generate } from "./generate.js";
 export { setBudget, listUsers } from "./admin-api.js";
+export { createWorkspace, addMember, removeMember } from "./workspace-api.js";
 
 /** Comma-separated emails allowed to sign in. A secret rather than a plain param so the
  *  list stays out of the repo and can be rotated without redeploying the code. */

@@ -22,6 +22,9 @@ of what used to be here is done:
 - **Project-level spend backstop.** `infra/budget.tf` provisions a billing budget.
 - **Concurrent budget holds.** The proxy reserves spend in a Firestore transaction before the
   model call and settles the exact cost afterwards, so concurrent calls serialize at the cap.
+- **Shared workspaces.** A brand lives at `workspaces/{id}` and is shared with everyone in its
+  `members/` subcollection; budgets deliberately stayed per-user. Membership is Admin-SDK-write-
+  only, and `generate` verifies it server-side before spending.
 
 ## Open
 
@@ -29,11 +32,24 @@ of what used to be here is done:
 
 `npm test` covers the pure modules (prompts, parsers, profile, export, cost, budget, allowlist).
 Nothing covers `lib/store.ts`, `lib/media.ts`, `lib/image.ts`, or `app/page.tsx`. That gap is
-what makes further decomposition of `page.tsx` risky: the account/week loading effects have
+what makes further decomposition of `page.tsx` risky: the workspace/week loading effects have
 race guards (`currentWorkspaceRef`, debounced saves) that no test would catch breaking.
 
 Next step is a test around week load/save ordering, then extracting `useWeekWorkspace` the way
-`hooks/useAccounts.ts` was extracted.
+`hooks/useWorkspaces.ts` was extracted.
+
+### Concurrent brand editing
+
+A shared brand's profile is written with a 600 ms debounce and last-write-wins on the whole
+document, so two people editing different fields at the same second can lose one of the edits.
+Fine for a handful of colleagues who talk to each other; fix with per-field writes or a presence
+indicator if it ever bites.
+
+### Retire the legacy account path
+
+`firestore.rules` still grants `users/{uid}/accounts/**` so the pre-workspace tree survives as
+the migration's rollback. Delete that block, and the old documents, once the workspace data has
+been verified in production.
 
 ### Server-side prompt assembly
 
@@ -48,4 +64,5 @@ it can be moved server-side unchanged.
 
 ## Not built
 
-Auto-posting (Instagram Graph / LinkedIn APIs), scheduling, multi-tenant billing, tier gating.
+Auto-posting (Instagram Graph / LinkedIn APIs), scheduling, multi-tenant billing, tier gating,
+shared/team budgets (deliberately: brands are shared, wallets are not).

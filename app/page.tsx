@@ -18,12 +18,13 @@ import { type Plan, type Post, type Strategy } from "@/lib/plan";
 import { auth } from "@/lib/firebase";
 import { EMPTY_PROFILE, normalizeProfile, type Profile } from "@/lib/profile";
 import {
-  type Item, type ItemStatus, addItem, createAccount,
-  deleteAccount, deleteItem, deleteWeek, listRecentWeekPosts, loadWeek, postSummary,
-  renameAccount, saveWeek, setItemStatus, updateAccountProfile,
+  type Item, type ItemStatus, addItem, createWorkspace,
+  deleteItem, deleteWeek, deleteWorkspace, listRecentWeekPosts, loadWeek, postSummary,
+  renameWorkspace, saveWeek, setItemStatus, updateWorkspaceProfile,
 } from "@/lib/store";
-import { useAccounts } from "@/hooks/useAccounts";
+import { useWorkspaces } from "@/hooks/useWorkspaces";
 import { AdminPanel } from "@/components/AdminPanel";
+import { MembersPanel } from "@/components/MembersPanel";
 import { CostSummary } from "@/components/CostSummary";
 import { PostCard } from "@/components/PostCard";
 import { SignIn } from "@/components/SignIn";
@@ -47,7 +48,7 @@ export default function Page() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [openSection, setOpenSection] = useState<string | null>("business");
-  const [workspace, setWorkspace] = useState<string | null>("planner");
+  const [tab, setTab] = useState<string | null>("planner");
   const [weekKey, setWeekKey] = useState(() => currentWeekKey());
   const [urlCompanyId, setUrlCompanyId] = useState("");
   const [urlReady, setUrlReady] = useState(false);
@@ -66,13 +67,13 @@ export default function Page() {
   const loadedWeekRef = useRef("");
   const currentWorkspaceRef = useRef("");
 
-  const { accounts, setAccounts, setActiveId, items, setItems,
-    loadingAccounts, active, profile, backlog, published } =
-    useAccounts({ user, urlCompanyId, urlReady, onError: setError });
+  const { workspaces, setWorkspaces, setActiveId, items, setItems,
+    loadingWorkspaces, active, profile, backlog, published } =
+    useWorkspaces({ user, urlCompanyId, urlReady, onError: setError });
 
-  // Identifies the account+week a save belongs to, so a debounced write that lands after the
+  // Identifies the workspace+week a save belongs to, so a debounced write that lands after the
   // user switches away is dropped instead of overwriting the new selection.
-  currentWorkspaceRef.current = user && active ? workspaceIdentity(user.uid, active.id, weekKey) : "";
+  currentWorkspaceRef.current = active ? workspaceIdentity(active.id, weekKey) : "";
 
   const [prefillText, setPrefillText] = useState("");
   const [showPrefill, setShowPrefill] = useState(false);
@@ -103,25 +104,25 @@ export default function Page() {
   useEffect(() => {
     if (!user || !active) return;
     let cancelled = false;
-    const identity = workspaceIdentity(user.uid, active.id, weekKey);
+    const identity = workspaceIdentity(active.id, weekKey);
     loadedWeekRef.current = "";
     setWeekReady(false);
-    // Post cards own display state derived from the loaded workspace. Do not
-    // leave cards from the previous account/week mounted while data is loading.
+    // Post cards own display state derived from the loaded week. Do not
+    // leave cards from the previous workspace/week mounted while data is loading.
     setStrategy(null); setPlan(null); setImageStates({});
     void (async () => {
       try {
-        const saved = await loadWeek(user.uid, active.id, weekKey);
+        const saved = await loadWeek(active.id, weekKey);
         const value = saved ?? emptyWeek(weekKey);
         // Image bytes live in separate chunk documents. Hydrate those before
         // mounting the plan so cards initialize with the complete saved state.
-        const expectedMediaPrefix = `users/${user.uid}/accounts/${active.id}/weeks/${weekKey}/media/`;
+        const expectedMediaPrefix = `workspaces/${active.id}/weeks/${weekKey}/media/`;
         const hydratedImageStates = await hydrateWeekImages(value.imageStates ?? {}, expectedMediaPrefix);
-        const recoveredImageStates = await recoverWeekImages(user.uid, active.id, weekKey,
+        const recoveredImageStates = await recoverWeekImages(active.id, weekKey,
           hydratedImageStates, value.plan?.posts.map((post) => post.id) ?? []);
         if (imageManifestDiffers(value.imageStates, recoveredImageStates)) {
           // Repair the manifest once so subsequent loads can use the direct path.
-          await saveWeek(user.uid, active.id, { ...value, imageStates: recoveredImageStates });
+          await saveWeek(active.id, { ...value, imageStates: recoveredImageStates });
         }
         if (cancelled) return;
         setWeeklyGoals(value.weeklyGoals); setThisWeek(value.thisWeek);
@@ -140,7 +141,7 @@ export default function Page() {
   useEffect(() => {
     if (!user || !active) return;
     let cancelled = false;
-    listRecentWeekPosts(user.uid, active.id, weekKey)
+    listRecentWeekPosts(active.id, weekKey)
       .then((posts) => { if (!cancelled) setRecentWeekPosts(posts); })
       .catch((err) => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
@@ -149,10 +150,10 @@ export default function Page() {
   useEffect(() => {
     // shouldAutosaveWeek owns the weekReady + identity guards; see its tests for why both matter.
     if (!user || !active) return;
-    if (!shouldAutosaveWeek(loadedWeekRef.current, workspaceIdentity(user.uid, active.id, weekKey), weekReady)) return;
+    if (!shouldAutosaveWeek(loadedWeekRef.current, workspaceIdentity(active.id, weekKey), weekReady)) return;
     if (weekSaveTimer.current) clearTimeout(weekSaveTimer.current);
     weekSaveTimer.current = setTimeout(() => {
-      void saveWeek(user.uid, active.id, { weekKey, weeklyGoals, thisWeek, availableAssets,
+      void saveWeek(active.id, { weekKey, weeklyGoals, thisWeek, availableAssets,
         requirements, feedback, strategy, plan, imageStates, updatedAt: Date.now() })
         .catch((err) => setError(`Weekly workspace could not be saved: ${(err as Error).message}`));
     }, 700);
@@ -163,15 +164,16 @@ export default function Page() {
 
   function updateActive(fn: (p: Profile) => Profile) {
     if (!user || !active) return;
-    const uid = user.uid;
-    const accountId = active.id;
+    const workspaceId = active.id;
     const next = fn(active.profile);
-    setAccounts((list) => list.map((a) => (a.id === accountId ? { ...a, profile: next } : a)));
+    setWorkspaces((list) => list.map((a) => (a.id === workspaceId ? { ...a, profile: next } : a)));
     // ponytail: debounce the Firestore write so typing doesn't fire a write per keystroke.
-    // 600ms is fine for a single owner; drop it if you ever need instant multi-device sync.
+    // The brand is shared now, so concurrent editors are last-write-wins on the whole profile.
+    // 600ms is fine for a handful of colleagues; upgrade path if two people ever fight over
+    // the same field is per-field writes or a presence indicator, not a shorter debounce.
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      void updateAccountProfile(uid, accountId, next).catch((err) => setError((err as Error).message));
+      void updateWorkspaceProfile(workspaceId, next).catch((err) => setError((err as Error).message));
     }, 600);
   }
 
@@ -225,7 +227,7 @@ export default function Page() {
       const history = [...published.map((i) => i.summary), ...recentWeekPosts, ...currentPlanHistory];
       const result = await generateContentPlan(requestBody({
         recent_posts: selectRelevantFingerprints(history, [weeklyGoals, thisWeek, requirements].join(" ")),
-      }), active?.id);
+      }), active.id);
       bumpSpend();
       const { strategy: nextStrategy, plan: nextPlan } = result.data;
       setStrategy(nextStrategy);
@@ -245,7 +247,7 @@ export default function Page() {
     if (!strategy) return undefined;
     setBusy(true); setError("");
     try {
-      const result = await generatePlan(requestBody({ strategy, frequency: strategy.items.length, ...extra }), false, active?.id);
+      const result = await generatePlan(requestBody({ strategy, frequency: strategy.items.length, ...extra }), false, active.id);
       bumpSpend();
       setPlan(result.data);
       requestAnimationFrame(() => planRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
@@ -263,7 +265,7 @@ export default function Page() {
     if (!revised) return;
     // Best-effort: a revision that teaches something durable becomes a standing rule.
     // Never blocks the plan, and a failure here is silent by design.
-    const rule = await deriveStyleRule(previous, revised, note, profile.styleRules, active?.id);
+    const rule = await deriveStyleRule(previous, revised, note, profile.styleRules, active.id);
     bumpSpend();
     // Merge inside the updater: the profile may have been edited during the two awaits above.
     if (rule) updateActive((p) => ({ ...p, styleRules: mergeStyleRules(p.styleRules, rule) }));
@@ -277,7 +279,7 @@ export default function Page() {
   async function saveItem(status: ItemStatus, post: Post) {
     if (!user || !active) return;
     try {
-      const item = await addItem(user.uid, active.id, { status, summary: postSummary(post), post });
+      const item = await addItem(active.id, { status, summary: postSummary(post), post });
       setItems((list) => [item, ...list]);
     } catch (err) { setError((err as Error).message); }
   }
@@ -287,7 +289,7 @@ export default function Page() {
     if (!text || !user || !active) return;
     setIdeaInput("");
     try {
-      const item = await addItem(user.uid, active.id, { status: "backlog", summary: text });
+      const item = await addItem(active.id, { status: "backlog", summary: text });
       setItems((list) => [item, ...list]);
     } catch (err) { setError((err as Error).message); }
   }
@@ -295,7 +297,7 @@ export default function Page() {
   async function changeStatus(item: Item, status: ItemStatus) {
     if (!user || !active) return;
     setItems((list) => list.map((i) => (i.id === item.id ? { ...i, status } : i)));
-    try { await setItemStatus(user.uid, active.id, item.id, status); }
+    try { await setItemStatus(active.id, item.id, status); }
     catch (err) { setError((err as Error).message); }
   }
 
@@ -312,7 +314,7 @@ export default function Page() {
         "Replace only the hashtags with a smaller set of specific, relevant hashtags.",
       ].includes(transformation);
       const result = await generatePlan(
-        requestBody({ mode: "transform", selected_post: post, transformation }), economy, active?.id,
+        requestBody({ mode: "transform", selected_post: post, transformation }), economy, active.id,
       );
       bumpSpend();
       const replacement = result.data.posts[0];
@@ -325,40 +327,44 @@ export default function Page() {
   async function removeItem(item: Item) {
     if (!user || !active) return;
     setItems((list) => list.filter((i) => i.id !== item.id));
-    try { await deleteItem(user.uid, active.id, item.id); }
+    try { await deleteItem(active.id, item.id); }
     catch (err) { setError((err as Error).message); }
   }
 
-  async function newAccount() {
+  async function newWorkspace() {
     if (!user) return;
-    const name = window.prompt("Name this account")?.trim();
+    const name = window.prompt("Name this brand")?.trim();
     if (!name) return;
     try {
-      const acc = await createAccount(user.uid, name, EMPTY_PROFILE);
-      setAccounts((list) => [...list, acc]);
-      setActiveId(acc.id);
+      // The callable writes the workspace and the creator's member document together, so the
+      // id only exists once it is reachable.
+      const id = await createWorkspace(name, EMPTY_PROFILE);
+      setWorkspaces((list) => [...list, { id, name, profile: EMPTY_PROFILE, platform: "multi",
+        ownerUid: user.uid, createdAt: Date.now() }]);
+      setActiveId(id);
     } catch (err) { setError((err as Error).message); }
   }
 
   async function renameActive() {
     if (!user || !active) return;
-    const name = window.prompt("Rename account", active.name)?.trim();
+    const name = window.prompt("Rename brand", active.name)?.trim();
     if (!name) return;
     const id = active.id;
-    setAccounts((list) => list.map((a) => (a.id === id ? { ...a, name } : a)));
-    try { await renameAccount(user.uid, id, name); }
+    setWorkspaces((list) => list.map((a) => (a.id === id ? { ...a, name } : a)));
+    try { await renameWorkspace(id, name); }
     catch (err) { setError((err as Error).message); }
   }
 
   async function deleteActive() {
     if (!user || !active) return;
-    if (accounts.length === 1) { setError("Can't delete your only account."); return; }
-    if (!window.confirm(`Delete "${active.name}"? Its saved posts and backlog go too.`)) return;
+    if (workspaces.length === 1) { setError("Can't delete your only brand."); return; }
+    if (active.ownerUid !== user.uid) { setError("Only the brand's owner can delete it."); return; }
+    if (!window.confirm(`Delete "${active.name}"? Its saved posts and backlog go too, for every member.`)) return;
     const id = active.id;
-    const remaining = accounts.filter((a) => a.id !== id);
-    setAccounts(remaining);
+    const remaining = workspaces.filter((a) => a.id !== id);
+    setWorkspaces(remaining);
     setActiveId(remaining[0]?.id ?? "");
-    try { await deleteAccount(user.uid, id); }
+    try { await deleteWorkspace(id); }
     catch (err) { setError((err as Error).message); }
   }
 
@@ -367,10 +373,10 @@ export default function Page() {
     if (!window.confirm(`Discard all saved work and generated images for ${weekKey}?`)) return;
     if (weekSaveTimer.current) clearTimeout(weekSaveTimer.current);
     try {
-      await Promise.all([deleteWeek(user.uid, active.id, weekKey), deleteWeekImages(imageStates)]);
+      await Promise.all([deleteWeek(active.id, weekKey), deleteWeekImages(imageStates)]);
       setWeeklyGoals(""); setThisWeek(""); setAvailableAssets(""); setRequirements("");
       setFeedback(""); setStrategy(null); setPlan(null); setImageStates({});
-      loadedWeekRef.current = workspaceIdentity(user.uid, active.id, weekKey);
+      loadedWeekRef.current = workspaceIdentity(active.id, weekKey);
     } catch (err) { setError((err as Error).message); }
   }
 
@@ -379,7 +385,7 @@ export default function Page() {
     if (weekSaveTimer.current) clearTimeout(weekSaveTimer.current);
     setWeekReady(false);
     try {
-      await saveWeek(user.uid, active.id, { weekKey, weeklyGoals, thisWeek, availableAssets,
+      await saveWeek(active.id, { weekKey, weeklyGoals, thisWeek, availableAssets,
         requirements, feedback, strategy, plan, imageStates, updatedAt: Date.now() });
       setWeekKey(nextWeekKey);
     } catch (err) {
@@ -400,7 +406,7 @@ export default function Page() {
     return <SignIn error={error} onError={setError} />;
   }
 
-  if (loadingAccounts) {
+  if (loadingWorkspaces) {
     return (
       <Center h="60vh">
         <Loader />
@@ -441,26 +447,26 @@ export default function Page() {
           <Select
             flex={1}
             maw={260}
-            aria-label="Active account"
+            aria-label="Active brand"
             allowDeselect={false}
             value={active.id}
             onChange={(v) => v && setActiveId(v)}
-            data={accounts.map((a) => ({ value: a.id, label: a.name }))}
+            data={workspaces.map((a) => ({ value: a.id, label: a.name }))}
           />
           <Menu shadow="md" position="bottom-start">
             <Menu.Target>
               <Button variant="default" size="compact-sm">Manage</Button>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item onClick={() => void newAccount()}>New account…</Menu.Item>
-              <Menu.Item onClick={() => void renameActive()}>Rename this account…</Menu.Item>
-              <Menu.Item color="red" onClick={() => void deleteActive()}>Delete this account…</Menu.Item>
+              <Menu.Item onClick={() => void newWorkspace()}>New brand…</Menu.Item>
+              <Menu.Item onClick={() => void renameActive()}>Rename this brand…</Menu.Item>
+              <Menu.Item color="red" onClick={() => void deleteActive()}>Delete this brand…</Menu.Item>
             </Menu.Dropdown>
           </Menu>
         </Group>
       )}
 
-      <Tabs variant="pills" value={workspace} onChange={setWorkspace} keepMounted={false}>
+      <Tabs variant="pills" value={tab} onChange={setTab} keepMounted={false}>
         <Tabs.List mb="xl">
           <Tabs.Tab value="planner">Planner</Tabs.Tab>
           <Tabs.Tab value="brand">Brand</Tabs.Tab>
@@ -502,6 +508,13 @@ export default function Page() {
         )}
 
       <Accordion value={openSection} onChange={setOpenSection} variant="separated">
+        <Accordion.Item value="members">
+          <Accordion.Control>Who can edit this brand</Accordion.Control>
+          <Accordion.Panel>
+            {active && <MembersPanel workspaceId={active.id} ownerUid={active.ownerUid}
+              uid={user.uid} onError={setError} />}
+          </Accordion.Panel>
+        </Accordion.Item>
         <Accordion.Item value="business">
           <Accordion.Control>Your business</Accordion.Control>
           <Accordion.Panel>
@@ -638,8 +651,8 @@ export default function Page() {
         <Accordion.Item value="costs">
           <Accordion.Control>AI costs</Accordion.Control>
           <Accordion.Panel>{user && active
-            ? <><CostSummary uid={user.uid} accountId={active.id}
-                accountNames={Object.fromEntries(accounts.map((a) => [a.id, a.name]))}
+            ? <><CostSummary uid={user.uid} workspaceId={active.id}
+                workspaceNames={Object.fromEntries(workspaces.map((a) => [a.id, a.name]))}
                 version={spendVersion} /><AdminPanel /></>
             : null}</Accordion.Panel>
         </Accordion.Item>
@@ -777,7 +790,7 @@ export default function Page() {
           <Stack gap="md">
             {plan.posts.map((post, i) => (
               <PostCard
-                key={`${active?.id}-${weekKey}-${post.id}-${i}`}
+                key={`${active.id}-${weekKey}-${post.id}-${i}`}
                 post={post}
                 onTweak={() => tweakDay(post.day)}
                 onKeep={() => void saveItem("planned", post)}
@@ -785,25 +798,25 @@ export default function Page() {
                 onTransform={(instruction) => void transformPost(post, instruction)}
                 visualIdentity={profile.visualIdentity}
                 avoid={profile.avoid}
-                accountId={active?.id}
+                workspaceId={active.id}
                 onSpend={bumpSpend}
                 savedImageState={imageStates[post.id]}
                 onImageState={(state) => setImageStates((current) => ({ ...current, [post.id]: state }))}
                 onGeneratedImages={async (images, state) => {
                   if (!user || !active) return;
-                  const generationWorkspace = workspaceIdentity(user.uid, active.id, weekKey);
-                  const saved = await saveWeekImages(user.uid, active.id, weekKey, post.id, images);
+                  const generationWorkspace = workspaceIdentity(active.id, weekKey);
+                  const saved = await saveWeekImages(active.id, weekKey, post.id, images);
                   const nextImageStates = { ...imageStates, [post.id]: { ...state, images: saved } };
                   // The image chunks and their references form one logical save. Do
                   // not rely on the general debounce here: an immediate refresh after
                   // generation must still be able to discover the saved chunks.
                   if (weekSaveTimer.current) clearTimeout(weekSaveTimer.current);
-                  await saveWeek(user.uid, active.id, { weekKey, weeklyGoals, thisWeek,
+                  await saveWeek(active.id, { weekKey, weeklyGoals, thisWeek,
                     availableAssets, requirements, feedback, strategy, plan,
                     imageStates: nextImageStates, updatedAt: Date.now() });
                   // Generation can finish after the user navigates away. The data
                   // belongs to its captured week, but must not leak into the newly
-                  // selected workspace's React state and autosave.
+                  // selected week's React state and autosave.
                   if (currentWorkspaceRef.current !== generationWorkspace) return;
                   setImageStates(nextImageStates);
                 }}

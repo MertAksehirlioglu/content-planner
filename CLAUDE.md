@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Weekly Content Planner: store a brand brain once, submit a structured weekly brief, approve
 a cross-channel strategy, then generate production-ready Instagram and LinkedIn content for
-company and founder voices. Multiple businesses ("accounts") are stored per user; workflow
+company and founder voices. A brand is a **shared workspace**: several signed-in users can be
+members of one, and they all see the same profile, items, backlog and weeks. Budgets are
+deliberately *not* shared — every member spends against their own monthly cap. Workflow
 history and a backlog feed future generation and deduplication. The app does not post content.
 Next.js (App Router) + TypeScript + Mantine, statically exported.
 
@@ -21,6 +23,11 @@ npm install && npm --prefix functions install   # two package.json roots: ./ and
 npm test                        # node --test, no network, no framework — pure logic only
 node --test lib/plan.test.ts    # a single test file
 node --test --test-name-pattern="allowlist"   # a single test by name
+
+# Emulator suites, outside `npm test` (they import SDKs). Need a JDK 21+ on PATH.
+npm --prefix functions run test:rules      # firestore.rules: membership, billing, legacy path
+npm --prefix functions run test:budget     # the reserve/settle transaction under concurrency
+npm --prefix functions run test:migrate    # the one-shot workspace migration
 
 npm run build                   # next build → static export in out/ (also typechecks the web app)
                                 # postbuild runs scripts/check-build.mjs: fails if the Firebase
@@ -42,8 +49,9 @@ Static site on Firebase Hosting. The page is prerendered to `out/`; the model ca
 **from the browser through the `generate` Cloud Function to Gemini** (via the `@google/genai`
 SDK). The browser no longer talks to Gemini directly — the
 `GEMINI_API_KEY` lives only on the server, and every generation flows through that one
-chokepoint (the seam the per-user budget layer meters). Two Cloud Functions now: the
-sign-in `gatekeeper` and the `generate` proxy.
+chokepoint (the seam the per-user budget layer meters). The deployed functions are the sign-in
+`gatekeeper`, the `generate` proxy, the admin pair (`setBudget`, `listUsers`) and the workspace
+trio (`createWorkspace`, `addMember`, `removeMember`) — all in `europe-west1`.
 
 The proxy is deliberately dumb — an App-Check-gated, authenticated *metered pipe*. Prompt
 assembly (`buildPrompt`), the response schemas, and all parsing stay in the pure client
@@ -51,12 +59,15 @@ modules; the server only forwards `{ parts, systemInstruction, generationConfig 
 and returns `{ text, inlineData?, usageMetadata, model }`. `lib/plan.ts` stays pure/offline-
 testable (no `firebase/*` import).
 
-Account state (business profiles + their saved/backlog `items`) lives in **Firestore**,
-owner-scoped by `uid` via `firestore.rules`. The browser reads/writes it directly through
-`lib/store.ts`.
+Brand state (business profiles + their saved/backlog `items`, weeks and usage log) lives in
+**Firestore** at top-level `workspaces/{workspaceId}`, scoped to the uids listed in that
+workspace's `members/` subcollection via `firestore.rules`. The browser reads/writes it
+directly through `lib/store.ts`. Budget and spend stayed at `users/{uid}/billing/*`, keyed by
+`request.auth.uid` — **shared brand, individual wallets**, which is what designs out the whole
+class of "forge a workspace id, drain someone else's budget" attacks.
 
-**Access control is not in the app code** — it's three Firebase-layer mechanisms working
-together, and you must understand all three to reason about security:
+**Access control is not in the app code** — it's four Firebase-layer mechanisms working
+together, and you must understand all four to reason about security:
 
 1. **App Check** (reCAPTCHA Enterprise, set up in `lib/firebase.ts`) — proves a request
    comes from this app; `httpsCallable` attaches its token to every `generate` call, which
@@ -66,10 +77,18 @@ together, and you must understand all three to reason about security:
 3. **`gatekeeper`** (`functions/src/index.ts`, a `beforeUserSignedIn` blocking function) —
    refuses any email outside `ALLOWED_EMAILS` *at sign-in*, so a valid session only ever
    exists for an allowlisted account.
+4. **Workspace membership** — `firestore.rules` grant a workspace's data only to uids with a
+   `members/{uid}` document, and deny every *client* write to `members/*`; the membership
+   callables (Admin SDK) are the only writers. Rules govern the browser's path, not the Admin
+   SDK path the proxy takes, so `generate` re-checks membership itself
+   (`functions/src/workspace-store.ts` → `assertMember`) before it reserves budget or writes a
+   usage event.
 
-Net effect: Gemini answers only signed-in users from the real app (1+2), and only
-allowlisted emails can obtain a session (3). Changing who has access = update the
-`ALLOWED_EMAILS` secret and redeploy the function; no client change.
+Net effect: Gemini answers only signed-in users from the real app (1+2), only allowlisted
+emails can obtain a session (3), and a session only reaches the brands it was added to (4).
+Changing who has access *at all* = update the `ALLOWED_EMAILS` secret and redeploy the
+function; changing who sees a *brand* = add them in the app's members panel. The two are
+separate: a member who is not on `ALLOWED_EMAILS` can never sign in to use their membership.
 
 ### Where things live
 
@@ -82,10 +101,20 @@ allowlisted emails can obtain a session (3). Changing who has access = update th
   `deriveStyleRule`, a fire-and-forget economy-model call made after a revision.
 - `lib/generate-client.ts` — the one `httpsCallable(functions, "generate")` wrapper. Shared
   by `lib/gemini.ts` and `lib/image.ts`; returns `{ text, inlineData?, usageMetadata, model }`.
+  `workspaceId` is a **required** field on every request.
 - `functions/src/generate.ts` — the server proxy (`onCall`, `europe-west1`,
   `enforceAppCheck: true`). Calls Gemini through the `@google/genai` SDK with the
   `GEMINI_API_KEY` secret; never parses prompts. Validates `model` against
-  `BILLABLE_MODELS` and `accountId` against `isValidAccountId` before spending anything.
+  `BILLABLE_MODELS`, then calls `assertMember` — before `reserveSpend`, so a rejected
+  non-member never leaves a budget hold behind.
+- `functions/src/membership.ts` — the pure membership predicates (`isMember`,
+  `canManageMembers`, `canRemoveMember`). Fails closed; the owner passes even without a member
+  document so a deleted one can't strand a brand. Tested offline.
+- `functions/src/workspace-store.ts` — the Admin SDK half: `assertMember`, and the batched
+  writes that create a workspace together with its owner's member document.
+- `functions/src/workspace-api.ts` — `createWorkspace` / `addMember` / `removeMember`
+  callables. Owner-only for the membership pair; `addMember` resolves an email to a uid, which
+  is the reason this is a callable and not a client write.
 - `functions/src/cost.ts` — **the only** model rate table, and the allowlist of callable
   models, deliberately the same list: a model with no rate bills $0, and a $0 bill never
   advances the budget. `lib/cost.ts` is display-only (usage normalization plus a pre-flight
@@ -109,16 +138,25 @@ allowlisted emails can obtain a session (3). Changing who has access = update th
   project, not so they stay hidden. Missing values throw at build with a fix-it message.
 - `functions/src/allowlist.ts` — exact, case-insensitive email match; fails closed (empty
   list allows nobody). Shared by the gatekeeper; has its own test.
-- `lib/store.ts` — Firestore CRUD for accounts and their `items` (backlog + production
-  workflow). The only module importing `firebase/firestore`. Legacy profiles and `used`
-  statuses are normalized on read.
-- `firestore.rules` — every doc under `users/{uid}` locked to its owner.
+- `lib/store.ts` — Firestore CRUD for workspaces, their `members`, `items` (backlog +
+  production workflow), `weeks` and `usage`. Legacy profiles and `used` statuses are normalized
+  on read. `listWorkspaces` is a `collectionGroup("members").where("uid","==",…)` query — the
+  filter is on the *field* because that is what rules can prove a query against, and it needs
+  the collection-group index in `firestore.indexes.json`. `lib/media.ts` (image chunks under
+  `weeks/`) and `lib/billing.ts` (per-user spend) are the other two Firestore importers.
+- `firestore.rules` — `workspaces/{id}` and its `items`/`weeks` open to members; `members/*`
+  and `usage/*` client-read-only; everything under `users/{uid}` locked to that user, with
+  `billing/*` client-read-only. The legacy `users/{uid}/accounts/**` block is still there
+  deliberately — see Migration below.
 - `app/page.tsx` — the entire UI and the sign-in gate. Brand brain, weekly brief, strategy
-  approval, content packages, scoped transforms, and workflow controls live here. Accounts
-  + items load from Firestore
-  on sign-in; only *which* account is active is kept in `localStorage`. A legacy
-  `planner.profile` (from the pre-Firestore version) is migrated into a "Default" account on
-  first load.
+  approval, content packages, scoped transforms, and workflow controls live here. Workspaces
+  + items load from Firestore on sign-in via `hooks/useWorkspaces.ts`; only *which* workspace
+  is active is kept in `localStorage` (under the old `planner.activeAccount` key, because
+  workspace ids *are* the old account ids). A legacy `planner.profile` (from the pre-Firestore
+  version) is migrated into a "Default" workspace on first load.
+- `components/MembersPanel.tsx` — the members roster and the owner-only add/remove controls,
+  in the Brand tab. Also where the "budgets are per-person, not per-brand" warning lives, so a
+  member is not surprised when their own cap runs out while a colleague's has room.
 
 ### Constraints that bite
 
@@ -126,12 +164,36 @@ allowlisted emails can obtain a session (3). Changing who has access = update th
   init (App Check) must be `typeof window !== "undefined"` guarded or the build crashes.
 - **Function region is `europe-west1`** — set on the gatekeeper and must match if you add
   functions.
+- **`workspace` means two different things.** `WeekWorkspace` / `workspaceIdentity` in
+  `lib/week.ts` are about one *week's* editing state; `Workspace` in `lib/store.ts` is the
+  shared brand. The UI tab state in `app/page.tsx` is `tab`, not `workspace`, for this reason.
 - **The `functions/` package is ESM** (`"type": "module"`, `moduleResolution: nodenext`).
   Relative imports in `src/*.ts` need explicit `.js` extensions (e.g. `./allowlist.js`);
   test files keep `.ts` for `node --test` type-stripping. This lets ESM-only deps like
   `@google/genai` be imported statically.
 - **Mantine 9 requires Next 16+** (it imports React 19.2's `useEffectEvent`, which Next 15
   doesn't vendor).
+
+## Migration to shared workspaces
+
+Brand data moved from `users/{uid}/accounts/{accountId}/**` to `workspaces/{accountId}/**` —
+the id is carried over verbatim, which is why `spend.byAccount`, the `?company=` URL param and
+the stored active-workspace id all still resolve. There is **no read-time fallback** in
+`lib/store.ts`: a fallback would split reads and writes across two locations forever. Instead:
+
+```sh
+FIREBASE_PROJECT_ID=<project> node functions/scripts/migrate-workspaces.mjs           # dry run
+FIREBASE_PROJECT_ID=<project> node functions/scripts/migrate-workspaces.mjs --apply
+```
+
+It copies only — nothing is deleted — so the old tree is the rollback. Run it **before** the
+push that deploys the new client, or signed-in users briefly see an empty workspace list. It
+is idempotent (an existing workspace is skipped unless `--force`), so a partial run is safe to
+repeat. Budgets need no migration; that is the point of the design.
+
+Once verified in production, delete the legacy `users/{uid}/accounts/**` block from
+`firestore.rules` and the old documents. Until then that block stays writable so a rollback
+works.
 
 ## Deploy
 
@@ -141,7 +203,8 @@ hardcoded anywhere: the web config comes from `.env.local` (generated by
 
 **CD: every push to `main` deploys via
 `.github/workflows/deploy.yml`** (build → `npm test` → `firebase deploy` of hosting +
-functions + firestore rules). One-time setup: add a deploy service account's JSON key as
+functions + firestore rules **and indexes** — `listWorkspaces` needs the collection-group
+index in `firestore.indexes.json` or it fails at runtime with a "requires an index" error). One-time setup: add a deploy service account's JSON key as
 the `FIREBASE_SERVICE_ACCOUNT` GitHub secret (roles + shortcut documented in the workflow
 file). `ALLOWED_EMAILS` lives in Secret Manager, not GitHub.
 
@@ -154,7 +217,7 @@ Manual deploy from your machine:
 ```sh
 terraform -chdir=infra apply                        # secrets, App Check, Firestore, auth config
 terraform -chdir=infra output -raw env_local > .env.local
-npx firebase deploy --only firestore:rules          # publish least-privilege rules (billing/usage read-only)
+npx firebase deploy --only firestore:rules,firestore:indexes   # least-privilege rules + the members index
 npm run deploy
 ```
 
@@ -169,8 +232,12 @@ only the Admin SDK (the proxy + the `setBudget`/`listUsers` admin callables) wri
 so a user can neither raise their own cap nor reset their counter. Change who is admin =
 update `ADMIN_EMAILS` and redeploy; a signed-in user with no budget doc gets a $5/mo default.
 
+Budgets stay per-user even for a *shared* workspace: colleagues on one brand each have their
+own cap, one exhausting theirs never blocks the other, and the spend document's `byAccount`
+field is keyed by workspace id so it still shows where a person's own money went.
+
 `npm run preview` also starts the Firestore emulator (see `firebase.json` → `emulators`),
-so accounts/items work locally without touching production data.
+so workspaces/items work locally without touching production data.
 
 **Deploy gotcha:** on the first deploy of a new/changed function, Firebase prompts about an
 artifact **cleanup policy** and `firebase deploy` exits non-zero *after* uploading the
@@ -202,7 +269,7 @@ Google Frontend, which carries no CORS headers; the function is never reached. R
 (**the Cloud Run service names are lowercased** — `setbudget`, not `setBudget`):
 
 ```sh
-for f in generate setbudget listusers; do
+for f in generate setbudget listusers createworkspace addmember removemember; do
   gcloud run services add-iam-policy-binding $f \
     --region=europe-west1 --project="$FIREBASE_PROJECT_ID" \
     --member=allUsers --role=roles/run.invoker

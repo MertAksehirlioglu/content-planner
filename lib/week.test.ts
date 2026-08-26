@@ -21,15 +21,14 @@ test("a new weekly workspace starts empty", () => {
 });
 
 test("workspaceIdentity is stable and distinguishes every axis", () => {
-  assert.equal(workspaceIdentity("u1", "a1", "2026-W33"), "u1:a1:2026-W33");
-  assert.notEqual(workspaceIdentity("u1", "a1", "2026-W33"), workspaceIdentity("u1", "a2", "2026-W33"));
-  assert.notEqual(workspaceIdentity("u1", "a1", "2026-W33"), workspaceIdentity("u2", "a1", "2026-W33"));
-  assert.notEqual(workspaceIdentity("u1", "a1", "2026-W33"), workspaceIdentity("u1", "a1", "2026-W34"));
+  assert.equal(workspaceIdentity("a1", "2026-W33"), "a1:2026-W33");
+  assert.notEqual(workspaceIdentity("a1", "2026-W33"), workspaceIdentity("a2", "2026-W33"));
+  assert.notEqual(workspaceIdentity("a1", "2026-W33"), workspaceIdentity("a1", "2026-W34"));
 });
 
 test("autosave only fires for the week that is actually loaded", () => {
-  const here = workspaceIdentity("u1", "a1", "2026-W33");
-  const elsewhere = workspaceIdentity("u1", "a2", "2026-W33");
+  const here = workspaceIdentity("a1", "2026-W33");
+  const elsewhere = workspaceIdentity("a2", "2026-W33");
 
   assert.equal(shouldAutosaveWeek(here, here, true), true);
   // Switched account mid-load: this state belongs to a week the user left.

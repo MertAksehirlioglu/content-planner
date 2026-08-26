@@ -26,9 +26,16 @@ Access control is not in the app code. It's four mechanisms:
 2. **Auth on the callables** — `generate` rejects unauthenticated requests.
 3. **`gatekeeper`** — a `beforeUserSignedIn` blocking function that refuses any email outside
    `ALLOWED_EMAILS`, and requires a verified email. It fails closed: an empty list allows nobody.
-4. **`firestore.rules`** — every document under `users/{uid}` is locked to its owner, and
-   `billing/*` and `usage/*` are read-only to the client so a user cannot raise their own budget
-   or reset their spend.
+4. **`firestore.rules`** — brand data at `workspaces/{id}` is readable and writable only by the
+   uids with a document in its `members/` subcollection, and `members/*` is client-read-only, so
+   a signed-in user cannot add themselves to someone else's brand. Everything under `users/{uid}`
+   stays locked to that user, and `billing/*` and `usage/*` are read-only to the client so a user
+   cannot raise their own budget or reset their spend. Sharing a brand never shares a wallet:
+   spend is metered per `request.auth.uid`, so a forged workspace id cannot reach anyone else's
+   budget.
+5. **Server-side membership check** — `firestore.rules` govern the browser's path to a workspace,
+   not the Admin SDK path the proxy uses, so `generate` verifies membership itself before it
+   reserves budget or writes a usage event.
 
 The Firebase web config and the reCAPTCHA site key in `.env.local` are **public identifiers**,
 not secrets — they ship in the bundle by design. The secrets are `GEMINI_API_KEY`,
@@ -37,7 +44,9 @@ not secrets — they ship in the bundle by design. The secrets are `GEMINI_API_K
 ## In scope
 
 - Signing in with an email outside `ALLOWED_EMAILS`.
-- Reading or writing another user's Firestore data.
+- Reading or writing another user's Firestore data, or the data of a workspace you are not a
+  member of.
+- Adding yourself to a workspace, or spending against another user's budget.
 - Gaining admin (`listUsers` / `setBudget`) without being in `ADMIN_EMAILS`.
 - Calling `generate` without a valid session, or getting model calls that don't count against
   a budget.

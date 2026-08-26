@@ -7,12 +7,12 @@ import type { SavedImage, SavedImageState } from "@/lib/week";
 // images can be retained without requiring a separately provisioned Storage bucket.
 const CHUNK_SIZE = 700_000;
 
-function assetDoc(uid: string, accountId: string, weekKey: string, assetId: string) {
-  return doc(db, "users", uid, "accounts", accountId, "weeks", weekKey, "media", assetId);
+function assetDoc(workspaceId: string, weekKey: string, assetId: string) {
+  return doc(db, "workspaces", workspaceId, "weeks", weekKey, "media", assetId);
 }
 
-function mediaCol(uid: string, accountId: string, weekKey: string) {
-  return collection(db, "users", uid, "accounts", accountId, "weeks", weekKey, "media");
+function mediaCol(workspaceId: string, weekKey: string) {
+  return collection(db, "workspaces", workspaceId, "weeks", weekKey, "media");
 }
 
 function safeId(value: string): string {
@@ -27,13 +27,13 @@ async function hydrateImage(image: SavedImage): Promise<SavedImage> {
   return { ...image, url };
 }
 
-export async function saveWeekImages(uid: string, accountId: string, weekKey: string,
+export async function saveWeekImages(workspaceId: string, weekKey: string,
   postId: string, images: GeneratedImage[]): Promise<SavedImage[]> {
   const savedByData = new Map<string, SavedImage>();
   const saved: SavedImage[] = [];
   for (const [index, image] of images.entries()) {
     const assetId = `${postId}-${index + 1}`.replace(/[^a-z0-9-]/gi, "-");
-    const asset = assetDoc(uid, accountId, weekKey, assetId);
+    const asset = assetDoc(workspaceId, weekKey, assetId);
     const existing = await getDocs(collection(asset, "chunks"));
     await Promise.all(existing.docs.map((entry) => deleteDoc(entry.ref)));
     const duplicate = savedByData.get(image.dataUrl);
@@ -60,7 +60,7 @@ export async function hydrateWeekImages(states: Record<string, SavedImageState>,
   expectedMediaPrefix = ""): Promise<Record<string, SavedImageState>> {
   const hydrated = await Promise.all(Object.entries(states).map(async ([postId, state]) => {
     // A manifest must never be allowed to follow an asset path into another
-    // account or week, even if a stale async UI update wrote one there.
+    // workspace or week, even if a stale async UI update wrote one there.
     const scopedImages = expectedMediaPrefix
       ? state.images.filter((image) => image.path.startsWith(expectedMediaPrefix)) : state.images;
     const images = await Promise.all(scopedImages.map(hydrateImage));
@@ -71,10 +71,10 @@ export async function hydrateWeekImages(states: Record<string, SavedImageState>,
 
 /** Recover media written before its week manifest was saved. This is deliberately
  * limited to post ids in the loaded plan so unrelated/stale assets stay hidden. */
-export async function recoverWeekImages(uid: string, accountId: string, weekKey: string,
+export async function recoverWeekImages(workspaceId: string, weekKey: string,
   states: Record<string, SavedImageState>, postIds: string[]): Promise<Record<string, SavedImageState>> {
   const recovered = { ...states };
-  const assets = await getDocs(mediaCol(uid, accountId, weekKey));
+  const assets = await getDocs(mediaCol(workspaceId, weekKey));
   const emptyUsage = { promptTokens: 0, cachedTokens: 0, outputTokens: 0,
     thinkingTokens: 0, totalTokens: 0, outputImageTokens: 0 };
 

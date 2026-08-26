@@ -17,11 +17,11 @@ function resolveAspectRatio(value: string): string {
 export interface GeneratedImage { dataUrl: string; mimeType: string; usage: UsageSnapshot; model: string }
 
 export async function generateAiImage(
+  workspaceId: string,
   prompt: string,
   refinement = "",
   styleReference?: GeneratedImage,
   aspectRatio = "4:5",
-  accountId?: string,
 ): Promise<GeneratedImage> {
   const request = refinement
     ? `${prompt}\n\nRetry refinement: ${refinement}\nGenerate a meaningfully improved new version.`
@@ -38,7 +38,7 @@ export async function generateAiImage(
     model: IMAGE_MODEL, parts,
     responseModalities: ["TEXT", "IMAGE"],
     imageConfig: { aspectRatio: resolveAspectRatio(aspectRatio), imageSize: "1K" },
-    operation: "image", accountId,
+    operation: "image", workspaceId,
   });
   if (!res.inlineData?.data) throw new Error("The image model returned no image. The prompt may have been filtered.");
   const mimeType = res.inlineData.mimeType || "image/png";

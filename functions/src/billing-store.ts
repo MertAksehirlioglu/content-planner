@@ -59,22 +59,26 @@ export async function reserveSpend(
 /**
  * Replace the hold with the real charge and append the usage event the UI lists.
  * `actual - reserve` is usually negative — the hold is deliberately generous — so this is
- * normally a refund. byAccount gets the actual, never the hold, so the per-account breakdown
- * stays exact.
+ * normally a refund. byAccount gets the actual, never the hold, so the per-workspace
+ * breakdown stays exact.
+ *
+ * The spend document stays under users/{uid} and keeps its `byAccount` field name: workspace
+ * ids *are* the old account ids, so existing month-to-date totals and their breakdown survive
+ * the workspace migration untouched. Only the usage event moved.
  */
 export async function settleSpend(
   db: Firestore,
-  args: { uid: string; accountId: string; month: string; reserve: number; actual: number;
+  args: { uid: string; workspaceId: string; month: string; reserve: number; actual: number;
           event: Record<string, unknown> },
 ): Promise<void> {
-  const { uid, accountId, month, reserve, actual, event } = args;
+  const { uid, workspaceId, month, reserve, actual, event } = args;
   const batch = db.batch();
   batch.set(spendRef(db, uid, month), {
     totalUsd: FieldValue.increment(actual - reserve),
-    byAccount: { [accountId]: FieldValue.increment(actual) },
+    byAccount: { [workspaceId]: FieldValue.increment(actual) },
     updatedAt: Date.now(),
   }, { merge: true });
-  batch.set(db.collection(`users/${uid}/accounts/${accountId}/usage`).doc(), {
+  batch.set(db.collection(`workspaces/${workspaceId}/usage`).doc(), {
     ...event, createdAt: Date.now(),
   });
   await batch.commit();

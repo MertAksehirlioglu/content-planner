@@ -57,30 +57,30 @@ const RULE_SCHEMA = obj({
 
 export interface GeneratedResult<T> { data: T; usage: UsageSnapshot; model: string }
 
-export async function generateStrategy(req: PlanRequest, accountId?: string): Promise<GeneratedResult<Strategy>> {
+export async function generateStrategy(req: PlanRequest, workspaceId: string): Promise<GeneratedResult<Strategy>> {
   const request = { ...req, mode: "strategy" };
   const res = await callGenerate({
     model: MODEL, systemInstruction: SYSTEM, parts: [{ text: buildPrompt(request) }],
-    responseMimeType: "application/json", responseSchema: STRATEGY_SCHEMA, operation: "strategy", accountId,
+    responseMimeType: "application/json", responseSchema: STRATEGY_SCHEMA, operation: "strategy", workspaceId,
   });
   return { data: parseStrategy(res.text, resolveFrequency(request)), usage: usageSnapshot(res.usageMetadata), model: MODEL };
 }
 
-export async function generateContentPlan(req: PlanRequest, accountId?: string): Promise<GeneratedResult<ContentPlanResult>> {
+export async function generateContentPlan(req: PlanRequest, workspaceId: string): Promise<GeneratedResult<ContentPlanResult>> {
   const request = { ...req, mode: "combined" };
   const res = await callGenerate({
     model: MODEL, systemInstruction: SYSTEM, parts: [{ text: buildPrompt(request) }],
-    responseMimeType: "application/json", responseSchema: CONTENT_PLAN_SCHEMA, operation: "combined", accountId,
+    responseMimeType: "application/json", responseSchema: CONTENT_PLAN_SCHEMA, operation: "combined", workspaceId,
   });
   return { data: parseContentPlan(res.text, resolveFrequency(request)), usage: usageSnapshot(res.usageMetadata), model: MODEL };
 }
 
-export async function generatePlan(req: PlanRequest, economy = false, accountId?: string): Promise<GeneratedResult<Plan>> {
+export async function generatePlan(req: PlanRequest, economy = false, workspaceId: string): Promise<GeneratedResult<Plan>> {
   const modelName = economy ? ECONOMY_MODEL : MODEL;
   const request = { ...req, mode: req.mode ?? "plan" };
   const res = await callGenerate({
     model: modelName, systemInstruction: SYSTEM, parts: [{ text: buildPrompt(request) }],
-    responseMimeType: "application/json", responseSchema: PLAN_SCHEMA, operation: "plan", accountId,
+    responseMimeType: "application/json", responseSchema: PLAN_SCHEMA, operation: "plan", workspaceId,
   });
   return { data: parsePlan(res.text, resolveFrequency(request)), usage: usageSnapshot(res.usageMetadata), model: modelName };
 }
@@ -90,13 +90,13 @@ export async function generatePlan(req: PlanRequest, economy = false, accountId?
  * callers fire and forget, so a failure here must never break the revision itself.
  */
 export async function deriveStyleRule(
-  previousPlan: Plan, revisedPlan: Plan, feedback: string, existingRules: string[], accountId?: string,
+  previousPlan: Plan, revisedPlan: Plan, feedback: string, existingRules: string[], workspaceId: string,
 ): Promise<string> {
   try {
     const res = await callGenerate({
       model: ECONOMY_MODEL, systemInstruction: RULE_SYSTEM,
       parts: [{ text: buildRulePrompt(previousPlan, revisedPlan, feedback, existingRules) }],
-      responseMimeType: "application/json", responseSchema: RULE_SCHEMA, operation: "rule", accountId,
+      responseMimeType: "application/json", responseSchema: RULE_SCHEMA, operation: "rule", workspaceId,
     });
     return parseStyleRule(res.text);
   } catch {

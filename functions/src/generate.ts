@@ -5,9 +5,9 @@ import { getFirestore } from "firebase-admin/firestore";
 import { GoogleGenAI, type GenerateContentConfig } from "@google/genai";
 
 import { costUsd, isBillableModel, monthKey, reserveUsd, usageSnapshot } from "./cost.js";
-import { isValidAccountId } from "./account-id.js";
 import { remainingUsd } from "./budget.js";
 import { releaseSpend, reserveSpend, settleSpend } from "./billing-store.js";
+import { assertMember } from "./workspace-store.js";
 
 /** Gemini Developer API key. A secret (not a param) so it stays out of the repo and can be
  *  rotated without a code change. This is what replaces the browser's Firebase AI Logic
@@ -26,17 +26,11 @@ interface GenerateData {
   responseSchema?: unknown;
   responseModalities?: string[];
   imageConfig?: { aspectRatio?: string; imageSize?: string };
-  // Forward-compatible metering hints for the budget layer; unused until it ships.
-  accountId?: string;
+  // Which shared workspace this call is for. Required: the usage event it produces is
+  // workspace-scoped, and a missing id used to fall back to an "unknown" bucket that no
+  // membership check can pass.
+  workspaceId?: string;
   operation?: string;
-}
-
-function resolveAccountId(raw: unknown): string {
-  if (raw === undefined || raw === null || raw === "") return "unknown";
-  if (!isValidAccountId(raw)) {
-    throw new HttpsError("invalid-argument", "accountId must be alphanumeric (with - or _).");
-  }
-  return raw;
 }
 
 /**
@@ -65,10 +59,18 @@ export const generate = onCall(
     }
 
     const uid = request.auth.uid;
-    const accountId = resolveAccountId(data.accountId);
+    const workspaceId = data.workspaceId;
+    if (typeof workspaceId !== "string" || workspaceId === "") {
+      throw new HttpsError("invalid-argument", "workspaceId is required.");
+    }
     const operation = typeof data.operation === "string" ? data.operation : "generate";
     const month = monthKey(new Date());
     const db = getFirestore();
+
+    // Before the budget hold, not after: a rejected non-member must not leave a hold behind.
+    // Budgets stay keyed by uid, so this is not what stops one user spending another's money
+    // — it stops a signed-in stranger writing usage events into someone else's workspace.
+    await assertMember(db, workspaceId, uid);
 
     // (a) Check the cap and take a hold in one transaction, BEFORE spending anything. Doing
     // these as separate read/write steps is what let concurrent calls all pass the same check;
@@ -123,7 +125,7 @@ export const generate = onCall(
     const imageCount = parts.filter((p) => p.inlineData).length;
     const cost = costUsd(data.model, usage, imageCount);
     await settleSpend(db, {
-      uid, accountId, month, reserve, actual: cost,
+      uid, workspaceId, month, reserve, actual: cost,
       event: { operation, model: data.model, usage, imageCount, estimatedUsd: cost },
     });
 

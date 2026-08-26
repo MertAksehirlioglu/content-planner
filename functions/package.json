@@ -9,8 +9,10 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test src/*.test.ts",
+    "migrate:workspaces": "node scripts/migrate-workspaces.mjs",
     "test:rules": "cd .. && npx --yes firebase-tools emulators:exec --project demo-content-planner --only firestore \"node --test functions/test/rules.test.ts\"",
-    "test:budget": "npm run build && cd .. && npx --yes firebase-tools emulators:exec --project demo-content-planner --only firestore \"node --test functions/test/budget-concurrency.test.ts\""
+    "test:budget": "npm run build && cd .. && npx --yes firebase-tools emulators:exec --project demo-content-planner --only firestore \"node --test functions/test/budget-concurrency.test.ts\"",
+    "test:migrate": "cd .. && npx --yes firebase-tools emulators:exec --project demo-content-planner --only firestore \"node --test functions/test/migrate.test.ts\""
   },
   "dependencies": {
     "@google/genai": "^2.17.0",
