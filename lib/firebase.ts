@@ -16,8 +16,11 @@ import { getFunctions } from "firebase/functions";
  * Access control is elsewhere and unchanged: App Check below, the beforeUserSignedIn
  * gatekeeper, and firestore.rules.
  */
-function required(name: string): string {
-  const value = process.env[name];
+// The value must be passed in as a *static* `process.env.NEXT_PUBLIC_X` expression: Next only
+// substitutes those at build time. A dynamic `process.env[name]` lookup is left untouched by
+// the bundler and resolves to nothing in the browser, so every value here silently became
+// undefined and the module threw on load. Keep the literal accesses at the call sites.
+function required(name: string, value: string | undefined): string {
   if (!value) {
     // Fail at build/boot rather than at the first Firebase call, where the error surfaces as
     // an opaque auth/invalid-api-key from deep inside the SDK.
@@ -30,12 +33,12 @@ function required(name: string): string {
 }
 
 const firebaseConfig = {
-  apiKey: required("NEXT_PUBLIC_FIREBASE_API_KEY"),
-  authDomain: required("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"),
-  projectId: required("NEXT_PUBLIC_FIREBASE_PROJECT_ID"),
+  apiKey: required("NEXT_PUBLIC_FIREBASE_API_KEY", process.env.NEXT_PUBLIC_FIREBASE_API_KEY),
+  authDomain: required("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN),
+  projectId: required("NEXT_PUBLIC_FIREBASE_PROJECT_ID", process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID),
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: required("NEXT_PUBLIC_FIREBASE_APP_ID"),
+  appId: required("NEXT_PUBLIC_FIREBASE_APP_ID", process.env.NEXT_PUBLIC_FIREBASE_APP_ID),
 };
 
 // Next re-runs modules on fast refresh; initializeApp twice throws.
@@ -50,7 +53,7 @@ if (typeof window !== "undefined") {
     (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: boolean }).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
   }
   initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider(required("NEXT_PUBLIC_RECAPTCHA_SITE_KEY")),
+    provider: new ReCaptchaEnterpriseProvider(required("NEXT_PUBLIC_RECAPTCHA_SITE_KEY", process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY)),
     isTokenAutoRefreshEnabled: true,
   });
 }

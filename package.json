@@ -16,7 +16,8 @@
     "build": "next build",
     "test": "node --test lib/*.test.ts functions/src/*.test.ts",
     "deploy": "npm run build && npx firebase deploy",
-    "preview": "npm run build && npx firebase emulators:start"
+    "preview": "npm run build && npx firebase emulators:start",
+    "postbuild": "node --env-file-if-exists=.env.local scripts/check-build.mjs"
   },
   "dependencies": {
     "@mantine/core": "^9.5.1",
