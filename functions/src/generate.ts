@@ -46,7 +46,11 @@ function resolveAccountId(raw: unknown): string {
  * The budget layer wraps this with a pre-check and spend recording (see the budget plan).
  */
 export const generate = onCall(
-  { secrets: [geminiApiKey], region: "europe-west1", enforceAppCheck: true },
+  // maxInstances bounds the blast radius of junk traffic: the endpoint must be publicly
+  // invocable for the browser callable protocol, so anyone can *reach* it and be rejected
+  // by App Check/auth. Those rejections still bill invocations; this caps how many can run
+  // at once. Raise it if real users ever queue behind the limit.
+  { secrets: [geminiApiKey], region: "europe-west1", enforceAppCheck: true, maxInstances: 10 },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in required.");
     const data = request.data as GenerateData | undefined;

@@ -11,7 +11,13 @@ import { readBudgetState } from "./billing-store.js";
 /** Who may set budgets / view all users. Comma-separated, in Secret Manager, mirroring
  *  ALLOWED_EMAILS. Fails closed via isAllowed: empty list grants admin to nobody. */
 const adminEmails = defineSecret("ADMIN_EMAILS");
-const OPTS = { secrets: [adminEmails], region: "europe-west1" as const, enforceAppCheck: true };
+const OPTS = {
+  secrets: [adminEmails],
+  region: "europe-west1" as const,
+  enforceAppCheck: true,
+  // Admin calls are rare and manual; a low ceiling bounds junk traffic at no real cost.
+  maxInstances: 3,
+};
 
 /**
  * email_verified is not optional here. `gatekeeper` runs at sign-in only, never on the hourly
