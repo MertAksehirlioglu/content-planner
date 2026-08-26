@@ -23,6 +23,8 @@ node --test lib/plan.test.ts    # a single test file
 node --test --test-name-pattern="allowlist"   # a single test by name
 
 npm run build                   # next build → static export in out/ (also typechecks the web app)
+                                # postbuild runs scripts/check-build.mjs: fails if the Firebase
+                                # web config is a placeholder or never reached the bundle
 npm --prefix functions run build   # tsc, typechecks the Cloud Function
 
 npm run dev        # Next only, hot reload, http://localhost:8420 — no sign-in gate backend
@@ -182,6 +184,37 @@ npx firebase functions:artifacts:setpolicy   # set the cleanup policy so it stop
 
 Confirm a release actually happened by checking the log for `release complete` /
 `Deploy complete!`, not just `file upload complete`.
+
+Note `functions:artifacts:setpolicy` defaults to `us-central1`; this project's functions are
+in `europe-west1`, so pass `--location europe-west1` or it reports the repository as missing.
+
+**Deploy gotcha — the invoker binding disappears.** Callable functions must be publicly
+*invocable* (`allUsers` + `roles/run.invoker` on the Cloud Run service) for the browser
+callable protocol to work at all: a browser cannot present a Google IAM identity. A redeploy
+can silently drop that binding. The symptom is misleading — the browser reports
+
+```
+blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present
+```
+
+but it is not a CORS bug. Cloud Run rejects the preflight with a plain 403 HTML page from
+Google Frontend, which carries no CORS headers; the function is never reached. Restore it
+(**the Cloud Run service names are lowercased** — `setbudget`, not `setBudget`):
+
+```sh
+for f in generate setbudget listusers; do
+  gcloud run services add-iam-policy-binding $f \
+    --region=europe-west1 --project="$FIREBASE_PROJECT_ID" \
+    --member=allUsers --role=roles/run.invoker
+done
+```
+
+Check with `gcloud run services get-iam-policy generate --region=europe-west1`. A healthy
+preflight returns `204` with `access-control-allow-origin`; a healthy anonymous POST returns
+`401`. This is not a security downgrade: access is enforced inside the function by App Check,
+the auth check, the gatekeeper allowlist, and the budget cap — `allUsers` grants the right to
+*reach* the endpoint and be rejected, not to use it. `maxInstances` bounds what those
+rejections can cost.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
