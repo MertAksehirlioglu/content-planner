@@ -20,7 +20,7 @@
     "postbuild": "node --env-file-if-exists=.env.local scripts/check-build.mjs"
   },
   "dependencies": {
-    "@mantine/core": "^9.5.1",
+    "@mantine/core": "^9.5.2",
     "@mantine/hooks": "^9.5.1",
     "firebase": "^12.17.1",
     "next": "^16.3.0",
